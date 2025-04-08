@@ -3,6 +3,10 @@ import os
 from collections import defaultdict
 from datetime import datetime
 import urllib3
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -20,7 +24,7 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
         verify_ssl = os.getenv("GITHUB_VERIFY_SSL", "True").lower() == "true"
 
     if not username or not github_token:
-        print("Error: Missing required inputs.")
+        logging.error("Missing required inputs.")
         return None
 
     headers = {
@@ -52,11 +56,14 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
             all_repos.extend(repos)
             page += 1
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching repositories: {e}")
+            logging.error(f"Error fetching repositories: {e}")
             return None
+
+    logging.info(f"Processing {len(all_repos)} repositories.")
 
     for repo in all_repos:
         repo_full_name = repo["full_name"]
+        logging.info(f"Processing repository: {repo_full_name}")
         repo_contributions[repo_full_name] = 0
 
         pulls_url = f"{base_api_url}/repos/{repo_full_name}/pulls?state=all"
@@ -65,12 +72,18 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
             response.raise_for_status()
             pulls = response.json()
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching pulls for {repo_full_name}: {e}")
+            logging.error(f"Error fetching pulls for {repo_full_name}: {e}")
             continue
 
+        logging.info(f"Processing {len(pulls)} pull requests for {repo_full_name}")
+
         for pull in pulls:
+            pull_number = pull.get('number')
+            logging.info(f"Processing pull request {pull_number} in {repo_full_name}")
+
             pull_created_at = datetime.strptime(pull.get('created_at'), "%Y-%m-%dT%H:%M:%SZ")
             if (start_datetime and pull_created_at < start_datetime) or (end_datetime and pull_created_at > end_datetime):
+                logging.info(f"Pull request {pull_number} out of date range. Skipping.")
                 continue
 
             if pull.get('user', {}).get('login') == username:
@@ -81,17 +94,20 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
                     commits_response.raise_for_status()
                     commits = commits_response.json()
                 except requests.exceptions.RequestException as e:
-                    print(f"Error fetching commits for PR {pull.get('number')} in {repo_full_name}: {e}")
+                    logging.error(f"Error fetching commits for PR {pull_number} in {repo_full_name}: {e}")
                     continue
 
+                logging.info(f"Processing {len(commits)} commits for PR {pull_number} in {repo_full_name}")
                 for commit in commits:
+                    commit_sha = commit.get('sha')
+                    logging.info(f"Processing commit {commit_sha} in PR {pull_number} in {repo_full_name}")
                     commit_url = commit.get('url')
                     try:
                         commit_details_response = requests.get(commit_url, headers=headers, verify=verify_ssl)
                         commit_details_response.raise_for_status()
                         commit_details = commit_details_response.json()
                     except requests.exceptions.RequestException as e:
-                        print(f"Error fetching commit details for commit {commit.get('sha')} in {repo_full_name}: {e}")
+                        logging.error(f"Error fetching commit details for commit {commit_sha} in {repo_full_name}: {e}")
                         continue
 
                     lines_added += commit_details.get('stats', {}).get('additions', 0)
@@ -103,9 +119,10 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
                 reviews_response.raise_for_status()
                 reviews = reviews_response.json()
             except requests.exceptions.RequestException as e:
-                print(f"Error fetching reviews for PR {pull.get('number')} in {repo_full_name}: {e}")
+                logging.error(f"Error fetching reviews for PR {pull_number} in {repo_full_name}: {e}")
                 continue
 
+            logging.info(f"Processing {len(reviews)} reviews for PR {pull_number} in {repo_full_name}")
             for review in reviews:
                 if review.get('user', {}).get('login') == username:
                     pull_requests_reviewed += 1
@@ -122,7 +139,7 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
         user_info = response.json()
         user_name = user_info.get("name", username)
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching user info: {e}")
+        logging.error(f"Error fetching user info: {e}")
 
     results = {
         "user_name": user_name,
