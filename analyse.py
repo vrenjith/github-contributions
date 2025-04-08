@@ -48,6 +48,7 @@ def get_user_contributions(username=None, enterprise_url=None, github_token=None
     page = 1
     while True:
         try:
+            logging.info(f"Fetching all user accessible repositories. Page {page}")
             response = requests.get(f"{repos_url}&page={page}", headers=headers, verify=verify_ssl)
             response.raise_for_status()
             repos = response.json()
